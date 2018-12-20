@@ -4,7 +4,7 @@ plugins {
 }
 
 group 'org.dimdev'
-version '1.0'
+version '1.0.1'
 
 sourceCompatibility = 1.8
 
@@ -18,7 +18,7 @@ repositories {
 
 dependencies {
     testCompile 'junit:junit:4.12'
-    compile 'enigma-asm:enigma:0.12.0.33:lib'
+    compile 'cuchaz:enigma:0.12.2.62:lib'
 }
 
 jar {
