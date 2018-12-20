@@ -1,0 +1,51 @@
+<idea-plugin>
+    <id>org.dimdev.knit</id>
+    <name>Knit</name>
+    <version>1.0</version>
+    <vendor url="https://www.dimdev.org">Dimensional Development</vendor>
+
+    <description>
+        <![CDATA[
+        <p>Adds support for editing Enigma mappings directly in IntelliJ.<br/></p>
+
+        <b>Usage:</b>
+        <ol>
+            <li>Set up a gradle project with this build.gradle (last updated for 18w50a): https://paste.dimdev.org/raw/yoxamudixi</li>
+            <li>Export source code from enigma to src/main/java</li>
+            <li>Open the project in IntelliJ with the plugin installed</li>
+            <li>Click 'Refactor > Enable Remapping' and select the Enigma 'mappings' folder</li>
+            <li>Rename classes, fields, methods, and parameters through Shift-F6</li>
+            <li>Save every once in a while using 'Refactor > Save Mappings'</li>
+        </ol>
+
+        <p><i>Note:</i> You may want to disable IntelliJ's "search and strings and comments" feature. It slows things down
+        and finds lots of false matches when renaming one letter names.</p>
+        ]]>
+    </description>
+
+    <change-notes>
+        1.0 - Initial Release
+
+        40 characters------
+    </change-notes>
+
+    <idea-version since-build="173.0"/>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationInitializedListener implementation="org.dimdev.knit.KnitApplicationInitializedListener"/>
+        <applicationService serviceImplementation="org.dimdev.knit.MappingsService"/>
+        <refactoring.elementListenerProvider implementation="org.dimdev.knit.KnitRefactoringListenerProvider"/>
+    </extensions>
+
+    <actions>
+        <action id="Knit.EnableRemapping" class="org.dimdev.knit.EnableRemappingAction" text="Enable Remapping" description="Enable or disable remapping mode">
+            <add-to-group group-id="RefactoringMenu"/>
+        </action>
+    </actions>
+
+    <actions>
+        <action id="Knit.SaveMappings" class="org.dimdev.knit.SaveMappingsAction" text="Save Mappings" description="Save mappings to directory they were loaded from">
+            <add-to-group group-id="RefactoringMenu"/>
+        </action>
+    </actions>
+</idea-plugin>
