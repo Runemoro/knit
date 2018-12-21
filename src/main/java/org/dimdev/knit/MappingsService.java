@@ -3,7 +3,6 @@ package org.dimdev.knit;
 import com.intellij.openapi.ui.Messages;
 import cuchaz.enigma.mapping.Mappings;
 import cuchaz.enigma.mapping.MappingsEnigmaReader;
-import cuchaz.enigma.mapping.MappingsEnigmaWriter;
 import cuchaz.enigma.throwables.MappingParseException;
 
 import java.io.File;
@@ -11,7 +10,6 @@ import java.io.IOException;
 
 public class MappingsService {
     private final MappingsEnigmaReader mappingsReader = new MappingsEnigmaReader();
-    private final MappingsEnigmaWriter mappingsWriter = new MappingsEnigmaWriter();
     private File mappingDirectory = null;
     private Mappings mappings = null;
 
@@ -24,7 +22,7 @@ public class MappingsService {
         mappings = new Mappings();
 
         try {
-            mappingsReader.readDirectory(mappings, mappingDirectory);
+            mappings = mappingsReader.read(mappingDirectory);
         } catch (MappingParseException e) {
             Messages.showErrorDialog("Exception occured while parsing mappings: " + e, "Mapping Parse Error");
         } catch (IOException e) {
@@ -38,7 +36,7 @@ public class MappingsService {
         }
 
         try {
-            mappingsWriter.writeAsDirectory(mappingDirectory, mappings);
+            mappings.saveEnigmaMappings(mappingDirectory, true);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

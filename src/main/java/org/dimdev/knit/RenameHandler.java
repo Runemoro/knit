@@ -7,9 +7,10 @@ import com.intellij.psi.*;
 import cuchaz.enigma.mapping.*;
 import cuchaz.enigma.throwables.MappingConflict;
 
+import java.util.function.Supplier;
+
 public class RenameHandler {
     public static final String NO_PACKAGE_PREFIX = "nopackage/";
-    public static final int MAX_OBFUSCATED_NAME_LENGTH = 3;
     private final MappingsService mappingsService = ServiceManager.getService(MappingsService.class);
 
     public void handleRename(String oldName, PsiElement element) {
@@ -22,7 +23,13 @@ public class RenameHandler {
 
             ClassMapping mapping = getOrCreateClassMapping(oldName);
             if (mapping != null) {
-                mappingsService.getMappings().setClassDeobfName(mapping, getClassName(clazz));
+                int dollarSignIndex = oldName.indexOf('$');
+                if (dollarSignIndex == -1) {
+                    mappingsService.getMappings().setClassDeobfName(mapping, getClassName(clazz));
+                } else {
+                    ClassMapping parent = getOrCreateClassMapping(oldName.substring(0, dollarSignIndex));
+                    parent.setInnerClassName(mapping.getObfEntry(), clazz.getName());
+                }
             }
         }
 
@@ -73,23 +80,40 @@ public class RenameHandler {
     }
 
     private ClassMapping getOrCreateClassMapping(String className) {
-        // Try getting deobfuscated class mapping
-        ClassMapping mapping = mappingsService.getMappings().getClassByDeobf(className);
+        String[] parts = className.split("\\$");
 
-        // If that doesn't work, try getting obfuscated class mapping
-        if (mapping == null) {
-            mapping = mappingsService.getMappings().getClassByObf(className);
-        }
+        // Get or create root mapping
+        ClassMapping mapping = coalesce(
+                () -> mappingsService.getMappings().getClassByDeobf(parts[0]),
+                () -> mappingsService.getMappings().getClassByObf(parts[0]),
+                () -> {
+                    try {
+                        ClassMapping newMapping = new ClassMapping(className);
+                        mappingsService.getMappings().addClassMapping(newMapping);
+                        return newMapping;
+                    } catch (MappingConflict e) {
+                        throw new IllegalStateException(e);
+                    }
+                }
+        );
 
-        // If that doesn't work either, create a new class mapping
-        if (mapping == null && className.length() <= MAX_OBFUSCATED_NAME_LENGTH) {
-            try {
-                mapping = new ClassMapping(className);
-                mappingsService.getMappings().addClassMapping(mapping);
-            } catch (MappingConflict e) {
-                throw new IllegalStateException("Both getClassByDeobf and getClassByObf returned null yet addClassMapping " +
-                                                "threw a MappingConflict exception", e);
-            }
+        // Get or create subclass mappings
+        for (int i = 1; i < parts.length && mapping != null; i++) {
+            ClassMapping mapping_ = mapping;
+            int i_ = i;
+            mapping = coalesce(
+                    () -> mapping_.getInnerClassByDeobf(parts[i_]),
+                    () -> mapping_.getInnerClassByObfSimple(parts[i_]),
+                    () -> {
+                        try {
+                            ClassMapping newMapping = new ClassMapping(className);
+                            mapping_.addInnerClassMapping(newMapping);
+                            return newMapping;
+                        } catch (MappingConflict e) {
+                            throw new IllegalStateException(e);
+                        }
+                    }
+            );
         }
 
         return mapping;
@@ -106,22 +130,16 @@ public class RenameHandler {
             return null;
         }
 
-        // Try getting deobfuscated method mapping
-        MethodDescriptor descriptor = obfuscateDescriptor(new MethodDescriptor(getDescriptor(method)));
-        MethodMapping mapping = classMapping.getMethodByDeobf(actualName, descriptor);
-
-        // If that doesn't work, try getting obfuscated method mapping
-        if (mapping == null) {
-            mapping = classMapping.getMethodByObf(actualName, descriptor);
-        }
-
-        // If that doesn't work either, create a new method mapping
-        if (mapping == null && actualName.length() <= MAX_OBFUSCATED_NAME_LENGTH) {
-            mapping = new MethodMapping(actualName, descriptor);
-            classMapping.addMethodMapping(mapping);
-        }
-
-        return mapping;
+        MethodDescriptor descriptor = new MethodDescriptor(getDescriptor(method)).remap(this::obfuscateClassName);
+        String actualName_ = actualName;
+        return coalesce(
+                () -> classMapping.getMethodByDeobf(actualName_, descriptor),
+                () -> classMapping.getMethodByObf(actualName_, descriptor),
+                () -> {
+                    MethodMapping newMapping = new MethodMapping(actualName_, descriptor);
+                    classMapping.addMethodMapping(newMapping);
+                    return newMapping;
+                });
     }
 
     private FieldMapping getOrCreateFieldMapping(PsiField field, String actualName) {
@@ -131,36 +149,43 @@ public class RenameHandler {
             return null;
         }
 
-        // Try getting deobfuscated method mapping
-        TypeDescriptor descriptor = obfuscateDescriptor(new TypeDescriptor(getDescriptor(field.getType())));
-        FieldMapping mapping = classMapping.getFieldByDeobf(actualName, descriptor);
-
-        // If that doesn't work, try getting obfuscated method mapping
-        if (mapping == null) {
-            mapping = classMapping.getFieldByObf(actualName, descriptor);
-        }
-
-        // If that doesn't work either, create a new field mapping
-        if (mapping == null && actualName.length() <= MAX_OBFUSCATED_NAME_LENGTH) {
-            mapping = new FieldMapping(actualName, descriptor, actualName, Mappings.EntryModifier.UNCHANGED);
-            classMapping.addFieldMapping(mapping);
-        }
-
-        return mapping;
+        TypeDescriptor descriptor = new TypeDescriptor(getDescriptor(field.getType())).remap(this::obfuscateClassName);
+        return coalesce(
+                () -> classMapping.getFieldByDeobf(actualName, descriptor),
+                () -> classMapping.getFieldByObf(actualName, descriptor),
+                () -> {
+                    FieldMapping newMapping = new FieldMapping(actualName, descriptor, actualName, Mappings.EntryModifier.UNCHANGED);
+                    classMapping.addFieldMapping(newMapping);
+                    return newMapping;
+                });
     }
 
-    public MethodDescriptor obfuscateDescriptor(MethodDescriptor descriptor) {
-        return descriptor.remap(className -> {
-            ClassMapping mapping = mappingsService.getMappings().getClassByDeobf(className);
-            return mapping != null ? mapping.getObfFullName() : className;
-        });
-    }
+    private String obfuscateClassName(String className) {
+        StringBuilder obfuscatedName = new StringBuilder();
 
-    public TypeDescriptor obfuscateDescriptor(TypeDescriptor descriptor) {
-        return descriptor.remap(clazzName -> {
-            ClassMapping mapping = mappingsService.getMappings().getClassByDeobf(clazzName);
-            return mapping != null ? mapping.getObfFullName() : clazzName;
-        });
+        String[] parts = className.split("\\$");
+
+        // Append root class
+        ClassMapping mapping = coalesce(
+                () -> mappingsService.getMappings().getClassByDeobf(parts[0]),
+                () -> mappingsService.getMappings().getClassByObf(parts[0])
+        );
+        obfuscatedName.append(mapping != null ? mapping.getObfFullName() : parts[0]);
+
+        // Append inner classes
+        for (int i = 1; i < parts.length; i++) {
+            if (mapping != null) {
+                ClassMapping mapping_ = mapping;
+                int i_ = i;
+                mapping = coalesce(
+                        () -> mapping_.getInnerClassByDeobf(parts[i_]),
+                        () -> mapping_.getInnerClassByObfSimple(parts[i_])
+                );
+            }
+            obfuscatedName.append("$").append(mapping != null ? mapping.getObfSimpleName() : parts[i]);
+        }
+
+        return obfuscatedName.toString();
     }
 
     public static String getClassName(PsiClass element) {
@@ -193,5 +218,16 @@ public class RenameHandler {
 
     public static String getDescriptor(PsiMethod method) {
         return JVMNameUtil.getJVMSignature(method).getDisplayName(null);
+    }
+
+    @SafeVarargs
+    private static <T> T coalesce(Supplier<T>... suppliers) {
+        for (Supplier<T> supplier : suppliers) {
+            T item = supplier.get();
+            if (item != null) {
+                return item;
+            }
+        }
+        return null;
     }
 }
