@@ -4,7 +4,7 @@ plugins {
 }
 
 group 'org.dimdev'
-version '1.0.1'
+version '1.0.2'
 
 sourceCompatibility = 1.8
 
@@ -21,10 +21,14 @@ dependencies {
     compile 'cuchaz:enigma:0.12.2.62:lib'
 }
 
-jar {
-    from configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
-}
-
 intellij {
     version '2018.3'
+}
+
+processResources {
+    filesMatching('plugin.xml') {
+        expand 'version': project.version
+    }
+
+    inputs.property 'version', project.version
 }

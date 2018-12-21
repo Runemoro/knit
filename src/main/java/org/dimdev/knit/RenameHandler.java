@@ -5,8 +5,11 @@ import com.intellij.lang.jvm.JvmModifier;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.psi.*;
 import cuchaz.enigma.mapping.*;
+import cuchaz.enigma.throwables.MappingConflict;
 
 public class RenameHandler {
+    public static final String NO_PACKAGE_PREFIX = "nopackage/";
+    public static final int MAX_OBFUSCATED_NAME_LENGTH = 3;
     private final MappingsService mappingsService = ServiceManager.getService(MappingsService.class);
 
     public void handleRename(String oldName, PsiElement element) {
@@ -15,49 +18,61 @@ public class RenameHandler {
         }
 
         if (element instanceof PsiClass) {
-            ClassMapping mapping = getClassMapping(oldName);
+            PsiClass clazz = (PsiClass) element;
+
+            ClassMapping mapping = getOrCreateClassMapping(oldName);
             if (mapping != null) {
-                mappingsService.getMappings().setClassDeobfName(mapping, getClassName((PsiClass) element));
+                mappingsService.getMappings().setClassDeobfName(mapping, getClassName(clazz));
             }
         }
 
         if (element instanceof PsiField) {
-            ClassMapping classMapping = getClassMapping(getClassName(((PsiField) element).getContainingClass()));
-            FieldMapping fieldMapping = getOrCreateFieldMapping((PsiField) element, oldName);
-            classMapping.setFieldName(fieldMapping.getObfName(), fieldMapping.getObfDesc(), ((PsiField) element).getName());
+            PsiField field = (PsiField) element;
+
+            ClassMapping classMapping = getOrCreateClassMapping(getClassName(field.getContainingClass()));
+            FieldMapping fieldMapping = getOrCreateFieldMapping(field, oldName);
+            classMapping.setFieldName(fieldMapping.getObfName(), fieldMapping.getObfDesc(), field.getName());
         }
 
         if (element instanceof PsiMethod) {
-            ClassMapping classMapping = getClassMapping(getClassName(((PsiMethod) element).getContainingClass()));
-            MethodMapping methodMapping = getOrCreateMethodMapping((PsiMethod) element, oldName);
-            classMapping.setMethodName(methodMapping.getObfName(), methodMapping.getObfDesc(), ((PsiMethod) element).getName());
+            PsiMethod method = (PsiMethod) element;
+
+            if (method.isConstructor()) {
+                return;
+            }
+
+            ClassMapping classMapping = getOrCreateClassMapping(getClassName(method.getContainingClass()));
+            MethodMapping methodMapping = getOrCreateMethodMapping(method, oldName);
+            classMapping.setMethodName(methodMapping.getObfName(), methodMapping.getObfDesc(), method.getName());
         }
 
         if (element instanceof PsiParameter) {
-            PsiElement declarationScope = ((PsiParameter) element).getDeclarationScope();
+            PsiParameter parameter = (PsiParameter) element;
+
+            PsiElement declarationScope = parameter.getDeclarationScope();
             if (declarationScope instanceof PsiMethod) {
                 MethodMapping mapping = getOrCreateMethodMapping((PsiMethod) declarationScope, ((PsiMethod) declarationScope).getName());
 
                 if (mapping != null) {
                     int index = ((PsiMethod) declarationScope).hasModifier(JvmModifier.STATIC) ? 0 : 1;
                     boolean found = false;
-                    for (PsiParameter parameter : ((PsiMethod) declarationScope).getParameterList().getParameters()) {
-                        if (parameter.equals(element)) {
+                    for (PsiParameter currentParameter : ((PsiMethod) declarationScope).getParameterList().getParameters()) {
+                        if (currentParameter.equals(parameter)) {
                             found = true;
                             break;
                         }
-                        index += parameter.getType().equals(PsiType.LONG) || parameter.getType().equals(PsiType.DOUBLE) ? 2 : 1;
+                        index += currentParameter.getType().equals(PsiType.LONG) || currentParameter.getType().equals(PsiType.DOUBLE) ? 2 : 1;
                     }
 
                     if (found) {
-                        mapping.setLocalVariableName(index, ((PsiParameter) element).getName());
+                        mapping.setLocalVariableName(index, parameter.getName());
                     }
                 }
             }
         }
     }
 
-    private ClassMapping getClassMapping(String className) {
+    private ClassMapping getOrCreateClassMapping(String className) {
         // Try getting deobfuscated class mapping
         ClassMapping mapping = mappingsService.getMappings().getClassByDeobf(className);
 
@@ -66,12 +81,27 @@ public class RenameHandler {
             mapping = mappingsService.getMappings().getClassByObf(className);
         }
 
+        // If that doesn't work either, create a new class mapping
+        if (mapping == null && className.length() <= MAX_OBFUSCATED_NAME_LENGTH) {
+            try {
+                mapping = new ClassMapping(className);
+                mappingsService.getMappings().addClassMapping(mapping);
+            } catch (MappingConflict e) {
+                throw new IllegalStateException("Both getClassByDeobf and getClassByObf returned null yet addClassMapping " +
+                                                "threw a MappingConflict exception", e);
+            }
+        }
+
         return mapping;
     }
 
     private MethodMapping getOrCreateMethodMapping(PsiMethod method, String actualName) {
+        if (method.isConstructor()) {
+            actualName = "<init>";
+        }
+
         // Get mapping for containing class
-        ClassMapping classMapping = getClassMapping(getClassName(method.getContainingClass()));
+        ClassMapping classMapping = getOrCreateClassMapping(getClassName(method.getContainingClass()));
         if (classMapping == null) {
             return null;
         }
@@ -86,7 +116,7 @@ public class RenameHandler {
         }
 
         // If that doesn't work either, create a new method mapping
-        if (mapping == null) {
+        if (mapping == null && actualName.length() <= MAX_OBFUSCATED_NAME_LENGTH) {
             mapping = new MethodMapping(actualName, descriptor);
             classMapping.addMethodMapping(mapping);
         }
@@ -96,7 +126,7 @@ public class RenameHandler {
 
     private FieldMapping getOrCreateFieldMapping(PsiField field, String actualName) {
         // Get mapping for containing class
-        ClassMapping classMapping = getClassMapping(getClassName(field.getContainingClass()));
+        ClassMapping classMapping = getOrCreateClassMapping(getClassName(field.getContainingClass()));
         if (classMapping == null) {
             return null;
         }
@@ -111,7 +141,7 @@ public class RenameHandler {
         }
 
         // If that doesn't work either, create a new field mapping
-        if (mapping == null) {
+        if (mapping == null && actualName.length() <= MAX_OBFUSCATED_NAME_LENGTH) {
             mapping = new FieldMapping(actualName, descriptor, actualName, Mappings.EntryModifier.UNCHANGED);
             classMapping.addFieldMapping(mapping);
         }
@@ -134,7 +164,12 @@ public class RenameHandler {
     }
 
     public static String getClassName(PsiClass element) {
-        return JVMNameUtil.getClassVMName(element).replace('.', '/');
+        String className = JVMNameUtil.getClassVMName(element).replace('.', '/');
+
+        if (className.startsWith(NO_PACKAGE_PREFIX)) {
+            className = className.substring(NO_PACKAGE_PREFIX.length());
+        }
+        return className;
     }
 
     public static String getDescriptor(PsiType type) {

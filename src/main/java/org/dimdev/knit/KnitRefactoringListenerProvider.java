@@ -22,7 +22,7 @@ public class KnitRefactoringListenerProvider implements RefactoringElementListen
         if (element instanceof PsiClass) {
             oldName = RenameHandler.getClassName((PsiClass) element);
         } else if (element instanceof PsiMethod) {
-            oldName = ((PsiMethod) element).getName();
+            oldName = ((PsiMethod) element).isConstructor() ? "<init>" : ((PsiMethod) element).getName();
         } else if (element instanceof PsiField) {
             oldName = ((PsiField) element).getName();
         } else {

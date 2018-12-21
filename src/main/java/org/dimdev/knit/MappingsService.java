@@ -52,8 +52,4 @@ public class MappingsService {
     public boolean hasMappings() {
         return mappings != null;
     }
-
-    static { // TODO: this should probably go somewhere else
-
-    }
 }
