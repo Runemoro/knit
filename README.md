@@ -11,7 +11,7 @@ IntelliJ plugin that adds support for editing Enigma mappings.
  2. Export source code from enigma to `src/main/java`</li>
  3. Open the project in IntelliJ with the plugin installed</li>
  4. Move all classes in the default package to a new package named `nopackage` (can't be named something else)</li>
- 5. Do a regex find-replace (Ctrl-Shift-R, check "Regex") and replace `\n\nimport` with `\n\nimport nopackage;\nimport`</li>
+ 5. Do a regex find-replace (Ctrl-Shift-R, check "Regex") and replace `\n\nimport` with `\n\nimport nopackage.*;\nimport`</li>
 
 ### Remapping
 
