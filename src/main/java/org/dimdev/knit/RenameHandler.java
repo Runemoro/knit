@@ -44,7 +44,7 @@ public class RenameHandler {
         if (element instanceof PsiMethod) {
             PsiMethod method = (PsiMethod) element;
 
-            if (method.isConstructor()) {
+            if (method.findSuperMethods().length > 0 || method.isConstructor()) {
                 return;
             }
 
@@ -57,13 +57,19 @@ public class RenameHandler {
             PsiParameter parameter = (PsiParameter) element;
 
             PsiElement declarationScope = parameter.getDeclarationScope();
-            if (declarationScope instanceof PsiMethod) {
-                MethodMapping mapping = getOrCreateMethodMapping((PsiMethod) declarationScope, ((PsiMethod) declarationScope).getName());
+            if (!(declarationScope instanceof PsiMethod)) {
+                return;
+            }
+            PsiMethod method = (PsiMethod) declarationScope;
+
+            for (PsiMethod superMethod : method.findDeepestSuperMethods()) {
+                ClassMapping classMapping = getOrCreateClassMapping(getClassName(method.getContainingClass()));
+                MethodMapping mapping = getOrCreateMethodMapping(superMethod, superMethod.getName());
 
                 if (mapping != null) {
-                    int index = ((PsiMethod) declarationScope).hasModifier(JvmModifier.STATIC) ? 0 : 1;
+                    int index = superMethod.hasModifier(JvmModifier.STATIC) ? 0 : 1;
                     boolean found = false;
-                    for (PsiParameter currentParameter : ((PsiMethod) declarationScope).getParameterList().getParameters()) {
+                    for (PsiParameter currentParameter : superMethod.getParameterList().getParameters()) {
                         if (currentParameter.equals(parameter)) {
                             found = true;
                             break;
@@ -75,6 +81,8 @@ public class RenameHandler {
                         mapping.setLocalVariableName(index, parameter.getName());
                     }
                 }
+
+                classMapping.markDirty();
             }
         }
     }
