@@ -29,6 +29,18 @@ public class MappingSerializer {
     public static void writeClass(File file, ClassMapping rootClass) throws IOException {
         rootClass = simplify(rootClass);
 
+        if (rootClass == null) {
+            if (file.exists()) {
+                Files.delete(file.toPath());
+                while (file.getParentFile().listFiles().length == 0) {
+                    file = file.getParentFile();
+                    Files.delete(file.toPath());
+                }
+            }
+
+            return;
+        }
+
         file.getParentFile().mkdirs();
         try (FileWriter writer = new FileWriter(file)) {
             TreeSerializer.<Object>write(writer, rootClass, mapping -> {
@@ -80,7 +92,11 @@ public class MappingSerializer {
                     return COMMENT_LABEL + " " + ((CommentLine) mapping).comment;
                 }
 
-                throw new AssertionError("unknown mapping type");
+                if (mapping == null) {
+                    throw new NullPointerException("null mapping");
+                }
+
+                throw new AssertionError("unknown mapping type" + mapping.getClass());
             });
         }
     }

@@ -3,6 +3,7 @@
     <name>Knit</name>
     <version>${version}</version>
     <vendor>Runemoro</vendor>
+    <idea-version since-build="190.0" until-build="1000.*"/>
 
     <description>Support for editing Enigma mappings directly in IntelliJ.</description>
 
@@ -47,6 +48,8 @@
             <li>Initial release</li>
         ]]>
     </change-notes>
+
+    <depends>com.intellij.modules.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <projectService serviceImplementation="knit.MappingService"/>

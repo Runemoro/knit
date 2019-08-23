@@ -6,7 +6,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.refactoring.listeners.RefactoringEventListener;
-import com.intellij.util.messages.MessageBus;
 import org.jetbrains.annotations.NotNull;
 
 public class KnitApplicationInitializedListener implements ApplicationInitializedListener {

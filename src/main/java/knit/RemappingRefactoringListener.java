@@ -10,6 +10,8 @@ import knit.mapping.MethodMapping;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 public class RemappingRefactoringListener implements RefactoringElementListener, UndoRefactoringElementListener {
@@ -19,23 +21,26 @@ public class RemappingRefactoringListener implements RefactoringElementListener,
     private final Consumer<String> setter;
 
     public RemappingRefactoringListener(PsiElement element) {
-        mappingService = MappingService.getInstance(element.getProject());;
+        mappingService = MappingService.getInstance(element.getProject());
         this.element = element;
         oldName = getQualifiedName(element);
 
         if (element instanceof PsiClass) {
+            mappingService.attachMappings(element);
             ClassMapping mapping = mappingService.getMapping((PsiClass) element);
             setter = name -> {
                 mapping.name = mappingService.getMappingName(name);
                 mappingService.markChanged(element);
             };
         } else if (element instanceof PsiField) {
+            mappingService.attachMappings(element);
             FieldMapping mapping = mappingService.getMapping((PsiField) element);
             setter = name -> {
                 mapping.name = name;
                 mappingService.markChanged(element);
             };
         } else if (element instanceof PsiMethod && !((PsiMethod) element).isConstructor()) {
+            mappingService.attachMappings(element);
             MethodMapping mapping = mappingService.getMapping((PsiMethod) element);
             setter = name -> {
                 mapping.name = name;
@@ -47,8 +52,34 @@ public class RemappingRefactoringListener implements RefactoringElementListener,
                 mapping.name = name;
                 mappingService.markChanged(element);
             };
+        } else if (element instanceof PsiPackage) {
+            setter = createPackageNameSetter((PsiPackage) element);
         } else {
             setter = name -> {};
+        }
+    }
+
+    private Consumer<String> createPackageNameSetter(PsiPackage element) {
+        List<Consumer<String>> setters = new ArrayList<>();
+        createPackageNameSetter("", element, setters);
+        return name -> {
+            for (Consumer<String> setter : setters) {
+                setter.accept(name);
+            }
+        };
+    }
+
+    private void createPackageNameSetter(String nameRest, PsiPackage package_, List<Consumer<String>> setters) {
+        for (PsiClass clazz : package_.getClasses()) {
+            ClassMapping mapping = mappingService.getMapping(clazz);
+            setters.add(name -> {
+                mapping.name = (name + nameRest + "." + clazz.getName()).replace('.', '/');
+                mappingService.markChanged(clazz);
+            });
+        }
+
+        for (PsiPackage subpackage : package_.getSubPackages()) {
+            createPackageNameSetter(nameRest + "." + subpackage.getName(), subpackage, setters);
         }
     }
 
@@ -68,7 +99,7 @@ public class RemappingRefactoringListener implements RefactoringElementListener,
                 return;
             }
 
-            setter.accept(getQualifiedName(element));
+            setter.accept(getQualifiedName(newElement));
         }
     }
 
@@ -81,12 +112,18 @@ public class RemappingRefactoringListener implements RefactoringElementListener,
 
     @Nullable
     private String getQualifiedName(PsiElement element) {
-        if (element instanceof PsiQualifiedNamedElement) {
-            return ((PsiQualifiedNamedElement) element).getQualifiedName();
-        } else if (element instanceof PsiNamedElement) {
-            return ((PsiNamedElement) element).getName();
-        } else {
-            return null;
+        if (element instanceof PsiPackage) {
+            return ((PsiPackage) element).getQualifiedName();
         }
+
+        if (element instanceof PsiClass && ((PsiClass) element).getContainingClass() == null) {
+            return ((PsiClass) element).getQualifiedName();
+        }
+
+        if (element instanceof PsiNamedElement) {
+            return ((PsiNamedElement) element).getName();
+        }
+
+        return null;
     }
 }

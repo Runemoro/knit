@@ -8,7 +8,7 @@ import com.intellij.psi.*;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import knit.mapping.MethodMapping;
 
-public class ObfuscationProjectViewNodeDecorator implements ProjectViewNodeDecorator {
+public class ObfuscationProjectViewNodeDecorator implements ProjectViewNodeDecorator { // TODO: settings, improve performance
     @Override
     public void decorate(ProjectViewNode node, PresentationData data) {
         MappingService mappingService = MappingService.getInstance(node.getProject());
@@ -31,7 +31,7 @@ public class ObfuscationProjectViewNodeDecorator implements ProjectViewNodeDecor
 
                 MethodMapping mapping = mappingService.getMapping(method);
 
-                if (!mapping.name.equals(mapping.obfuscatedName)) {
+                if (!mapping.name.equals(mapping.obfuscatedName) && mappingService.isMethodObfuscated(mapping.obfuscatedName)) {
                     mappedMethods[0]++;
                 }
 

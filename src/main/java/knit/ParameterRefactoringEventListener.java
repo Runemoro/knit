@@ -18,6 +18,10 @@ public class ParameterRefactoringEventListener implements RefactoringEventListen
 
     @Override
     public void refactoringStarted(@NotNull String refactoringId, @Nullable RefactoringEventData beforeData) {
+        if (beforeData == null) {
+            return;
+        }
+
         PsiElement element = beforeData.getUserData(RefactoringEventData.PSI_ELEMENT_KEY);
         if (element instanceof PsiParameter) {
             currentListener = listenerProvider.getListener(element);
@@ -26,6 +30,10 @@ public class ParameterRefactoringEventListener implements RefactoringEventListen
 
     @Override
     public void refactoringDone(@NotNull String refactoringId, @Nullable RefactoringEventData afterData) {
+        if (afterData == null) {
+            return;
+        }
+
         PsiElement element = afterData.getUserData(RefactoringEventData.PSI_ELEMENT_KEY);
         if (element instanceof PsiParameter) {
             currentListener.elementRenamed(element);

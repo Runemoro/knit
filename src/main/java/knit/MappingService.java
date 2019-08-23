@@ -59,7 +59,7 @@ public class MappingService {
             file.delete();
         }
 
-        File mappingFile = getMappingFile(rootClass.getQualifiedName());
+        File mappingFile = getMappingFile(mapping.name.replace('/', '.'));
         mappingFiles.put(mapping, mappingFile);
 
         try {
@@ -77,7 +77,7 @@ public class MappingService {
         return name.replace('.', '/');
     }
 
-    public void attachMappings(PsiClass clazz) {
+    public void attachMappings(PsiElement element) {
         new JavaRecursiveElementVisitor() {
             final Deque<ClassData> classes = new ArrayDeque<>();
 
@@ -97,12 +97,12 @@ public class MappingService {
                     }
                 }
 
-                classMappings.put(clazz, classMapping);
+                classMappings.putIfAbsent(clazz, classMapping);
                 ClassData classData = new ClassData(clazz, classMapping);
 
-                classMapping.nestedClasses.forEach(nestedClass -> classData.nestedClasses.put(nestedClass.name, nestedClass));
-                classMapping.methods.forEach(method -> classData.methods.put(method.name + " " + method.obfuscatedDescriptor, method));
-                classMapping.fields.forEach(field -> classData.fields.put(field.name + " " + field.obfuscatedDescriptor, field));
+                classMapping.nestedClasses.forEach(nestedClass -> classData.nestedClasses.putIfAbsent(nestedClass.name, nestedClass));
+                classMapping.methods.forEach(method -> classData.methods.putIfAbsent(method.name + " " + method.obfuscatedDescriptor, method));
+                classMapping.fields.forEach(field -> classData.fields.putIfAbsent(field.name + " " + field.obfuscatedDescriptor, field));
 
                 classes.push(classData);
                 super.visitClass(clazz);
@@ -121,10 +121,10 @@ public class MappingService {
                     containingClassData.mapping.methods.add(methodMapping);
                 }
 
-                methodMappings.put(method, methodMapping);
+                methodMappings.putIfAbsent(method, methodMapping);
 
                 Map<Integer, LocalVariableMapping> localVariables = new HashMap<>();
-                methodMapping.localVariables.forEach(localVariable -> localVariables.put(localVariable.index, localVariable));
+                methodMapping.localVariables.forEach(localVariable -> localVariables.putIfAbsent(localVariable.index, localVariable));
 
                 int index = method.hasModifier(JvmModifier.STATIC) ? 0 : 1;
                 for (PsiParameter parameter : method.getParameterList().getParameters()) {
@@ -135,7 +135,7 @@ public class MappingService {
                         methodMapping.localVariables.add(parameterMapping);
                     }
 
-                    parameterMappings.put(parameter, parameterMapping);
+                    parameterMappings.putIfAbsent(parameter, parameterMapping);
                     index += parameter.getType().equals(PsiType.LONG) || parameter.getType().equals(PsiType.DOUBLE) ? 2 : 1;
                 }
 
@@ -170,7 +170,7 @@ public class MappingService {
                     this.mapping = mapping;
                 }
             }
-        }.visitClass(clazz);
+        }.visitClass(getRootClass(element));
     }
 
     public ClassMapping getMapping(PsiClass clazz) {
@@ -180,7 +180,7 @@ public class MappingService {
             return mapping;
         }
 
-        attachMappings(getRootClass(clazz));
+        attachMappings(clazz);
         return classMappings.get(clazz);
     }
 
@@ -191,7 +191,7 @@ public class MappingService {
             return mapping;
         }
 
-        attachMappings(getRootClass(method));
+        attachMappings(method);
         return methodMappings.get(method);
     }
 
@@ -202,7 +202,7 @@ public class MappingService {
             return mapping;
         }
 
-        attachMappings(getRootClass(field));
+        attachMappings(field);
         return fieldMappings.get(field);
     }
 
@@ -213,7 +213,7 @@ public class MappingService {
             return mapping;
         }
 
-        attachMappings(getRootClass(parameter));
+        attachMappings(parameter);
         return parameterMappings.get(parameter);
     }
 
@@ -273,9 +273,7 @@ public class MappingService {
             if (resolved instanceof PsiTypeParameter) {
                 PsiClassType[] bounds = ((PsiTypeParameter) resolved).getExtendsList().getReferencedTypes();
 
-                if (bounds.length > 0) {
-                    return getObfuscatedDescriptor(bounds[0]);
-                }
+                return bounds.length == 0 ? "Ljava/lang/Object;" : getObfuscatedDescriptor(bounds[0]);
             }
 
             if (resolved == null) {
@@ -321,6 +319,24 @@ public class MappingService {
 
     private File getMappingFile(String name) {
         return new File(mappingDirectory, getMappingName(name) + ".mapping");
+    }
+
+    // TODO: settings
+    public boolean isClassObfuscated(String name) {
+        int lastSlash = name.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            name = name.substring(lastSlash + 1);
+        }
+
+        return name.startsWith("class");
+    }
+
+    public boolean isMethodObfuscated(String name) {
+        return name.startsWith("method") || name.startsWith("func");
+    }
+
+    public boolean isFieldObfuscated(String name) {
+        return name.startsWith("field");
     }
 
     public static MappingService getInstance(Project project) {
